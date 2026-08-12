@@ -1,0 +1,3 @@
+module github.com/mucusscraper/Order-Flow
+
+go 1.25.4
