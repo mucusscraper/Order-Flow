@@ -5,14 +5,16 @@ import (
 )
 
 type Config struct {
-	AppEnv     string
-	ServerPort string
+	AppEnv      string
+	ServerPort  string
+	DatabaseURL string
 }
 
 func Load() *Config {
 	return &Config{
-		AppEnv:     getEnv("APP_ENV", "development"),
-		ServerPort: getEnv("SERVER_PORT", "8080"),
+		AppEnv:      getEnv("APP_ENV", "development"),
+		ServerPort:  getEnv("SERVER_PORT", "8080"),
+		DatabaseURL: getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5433/orderflow?sslmode=disable"),
 	}
 }
 
