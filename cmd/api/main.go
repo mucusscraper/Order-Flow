@@ -9,7 +9,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mucusscraper/Order-Flow/internal/handler"
 	"github.com/mucusscraper/Order-Flow/internal/logger"
+	"github.com/mucusscraper/Order-Flow/internal/repository"
+	"github.com/mucusscraper/Order-Flow/internal/service"
 
 	"github.com/mucusscraper/Order-Flow/internal/config"
 )
@@ -17,12 +20,20 @@ import (
 func main() {
 	cfg := config.Load()
 	log := logger.New()
+
+	orderRepo := repository.NewInMemoryOrderRepository()
+	orderService := service.NewOrderService(orderRepo)
+	orderHandler := handler.NewOrderHandler(orderService)
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status":"ok"}`))
 	})
+	mux.HandleFunc("POST /orders", orderHandler.CreateOrder)
+	mux.HandleFunc("GET /orders/{id}", orderHandler.GetOrder)
+	mux.HandleFunc("POST /orders/{id}/cancel", orderHandler.CancelOrder)
 	server := &http.Server{
 		Addr:    ":" + cfg.ServerPort,
 		Handler: mux,
