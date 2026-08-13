@@ -24,7 +24,6 @@ func main() {
 	log := logger.New()
 	ctx := context.Background()
 
-	// Inicializa banco e roda migrations (Goose)
 	sqlDB, err := database.InitDB(ctx, cfg.DatabaseURL)
 	if err != nil {
 		log.Error("failed to initialize database and run migrations", "error", err)
@@ -32,7 +31,6 @@ func main() {
 	}
 	defer sqlDB.Close()
 
-	// Cria o pool de conexões pgx para o repositório Postgres
 	dbPool, err := pgxpool.New(ctx, cfg.DatabaseURL)
 	if err != nil {
 		log.Error("failed to create pgx pool", "error", err)
@@ -40,7 +38,13 @@ func main() {
 	}
 	defer dbPool.Close()
 
-	// Camadas da aplicação conectadas ao Postgres real
+	rdb, err := database.InitRedis(ctx, cfg.RedisURL)
+	if err != nil {
+		log.Error("failed to initialize redis", "error", err)
+		os.Exit(1)
+	}
+	defer rdb.Close()
+
 	orderRepo := repository.NewPostgresOrderRepository(dbPool)
 	orderService := service.NewOrderService(orderRepo)
 	orderHandler := handler.NewOrderHandler(orderService)
@@ -53,14 +57,22 @@ func main() {
 		w.Write([]byte(`{"status":"ok"}`))
 	})
 
-	mux.Handle("POST /orders", middleware.AuthMiddleware(cfg.JWTSecret)(
-		middleware.RBACMiddleware("CUSTOMER", "ADMIN")(http.HandlerFunc(orderHandler.CreateOrder)),
+	mux.Handle("POST /orders", middleware.RateLimitMiddleware(rdb, 5, 1*time.Minute)(
+		middleware.AuthMiddleware(cfg.JWTSecret)(
+			middleware.RBACMiddleware("CUSTOMER", "ADMIN")(http.HandlerFunc(orderHandler.CreateOrder)),
+		),
 	))
-	mux.Handle("GET /orders/{id}", middleware.AuthMiddleware(cfg.JWTSecret)(
-		middleware.RBACMiddleware("CUSTOMER", "OPERATOR", "ADMIN")(http.HandlerFunc(orderHandler.GetOrder)),
+
+	mux.Handle("GET /orders/{id}", middleware.RateLimitMiddleware(rdb, 5, 1*time.Minute)(
+		middleware.AuthMiddleware(cfg.JWTSecret)(
+			middleware.RBACMiddleware("CUSTOMER", "OPERATOR", "ADMIN")(http.HandlerFunc(orderHandler.GetOrder)),
+		),
 	))
-	mux.Handle("POST /orders/{id}/cancel", middleware.AuthMiddleware(cfg.JWTSecret)(
-		middleware.RBACMiddleware("CUSTOMER", "ADMIN")(http.HandlerFunc(orderHandler.CancelOrder)),
+
+	mux.Handle("POST /orders/{id}/cancel", middleware.RateLimitMiddleware(rdb, 5, 1*time.Minute)(
+		middleware.AuthMiddleware(cfg.JWTSecret)(
+			middleware.RBACMiddleware("CUSTOMER", "ADMIN")(http.HandlerFunc(orderHandler.CancelOrder)),
+		),
 	))
 
 	server := &http.Server{

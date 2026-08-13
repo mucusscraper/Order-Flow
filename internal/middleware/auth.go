@@ -71,29 +71,23 @@ func RBACMiddleware(allowedRoles ...string) func(http.Handler) http.Handler {
 
 func parseAndValidateToken(tokenString, secret string) (*Claims, error) {
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		// Valida o algoritmo de assinatura
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
 		return []byte(secret), nil
 	})
-
 	if err != nil || !token.Valid {
 		return nil, fmt.Errorf("invalid token: %w", err)
 	}
-
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
 		return nil, fmt.Errorf("invalid token claims")
 	}
-
 	userID, okUser := claims["sub"].(string)
 	role, okRole := claims["role"].(string)
-
 	if !okUser || !okRole {
 		return nil, fmt.Errorf("missing standard claims")
 	}
-
 	return &Claims{
 		UserID: userID,
 		Role:   role,
