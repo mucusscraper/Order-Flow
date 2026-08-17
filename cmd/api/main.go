@@ -46,7 +46,7 @@ func main() {
 	defer rdb.Close()
 
 	orderRepo := repository.NewPostgresOrderRepository(dbPool)
-	orderService := service.NewOrderService(orderRepo)
+	orderService := service.NewOrderService(orderRepo, rdb)
 	orderHandler := handler.NewOrderHandler(orderService)
 
 	mux := http.NewServeMux()
