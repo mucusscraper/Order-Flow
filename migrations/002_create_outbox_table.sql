@@ -11,5 +11,11 @@ CREATE TABLE IF NOT EXISTS outbox_events (
 
 CREATE INDEX idx_outbox_status_created ON outbox_events(status, created_at) WHERE status = 'PENDING';
 
+CREATE TABLE IF NOT EXISTS processed_events (
+    event_id VARCHAR(255) PRIMARY KEY,
+    processed_at TIMESTAMP DEFAULT NOW()
+);
+
 -- +goose Down
 DROP TABLE IF EXISTS outbox_events;
+DROP TABLE IF EXISTS processed_events;

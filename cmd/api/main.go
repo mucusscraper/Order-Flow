@@ -53,11 +53,11 @@ func main() {
 	consumer := worker.NewOrderConsumer(
 		[]string{cfg.KafkaURL},
 		"orders.created",
-		"order-processing-group",
+		"order-processing-group-v4", // <-- Mudou para v3
 		log,
+		dbPool,
 	)
 	go consumer.Start(context.Background())
-	defer consumer.Close()
 	orderRepo := repository.NewPostgresOrderRepository(dbPool)
 	outboxRepo := repository.NewPostgresOutboxRepository()
 	outboxPublisher := repository.NewOutboxPublisher(outboxRepo)
@@ -118,4 +118,5 @@ func main() {
 		log.Error("forced server shutdown", "error", err)
 	}
 	log.Info("server stopped gracefully")
+	consumer.Close()
 }
