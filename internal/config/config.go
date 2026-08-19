@@ -10,6 +10,7 @@ type Config struct {
 	DatabaseURL string
 	JWTSecret   string
 	RedisURL    string
+	KafkaURL    string
 }
 
 func Load() *Config {
@@ -19,6 +20,7 @@ func Load() *Config {
 		DatabaseURL: getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5433/orderflow?sslmode=disable"),
 		JWTSecret:   getEnv("JWT_SECRET", "default-secret-key-change-me"),
 		RedisURL:    getEnv("REDIS_URL", "redis://localhost:6379"),
+		KafkaURL:    getEnv("KAFKA_URL", "localhost:9092"),
 	}
 }
 

@@ -17,6 +17,7 @@ import (
 	"github.com/mucusscraper/Order-Flow/internal/middleware"
 	"github.com/mucusscraper/Order-Flow/internal/repository"
 	"github.com/mucusscraper/Order-Flow/internal/service"
+	"github.com/mucusscraper/Order-Flow/internal/worker"
 )
 
 func main() {
@@ -44,9 +45,23 @@ func main() {
 		os.Exit(1)
 	}
 	defer rdb.Close()
+	kafkaWriter := database.NewKafkaWriter([]string{cfg.KafkaURL}, "orders.created") // Ajuste conforme seu config
+	defer kafkaWriter.Close()
 
+	outboxWorker := service.NewOutboxWorker(dbPool, kafkaWriter, log)
+	go outboxWorker.Start(ctx)
+	consumer := worker.NewOrderConsumer(
+		[]string{cfg.KafkaURL},
+		"orders.created",
+		"order-processing-group",
+		log,
+	)
+	go consumer.Start(context.Background())
+	defer consumer.Close()
 	orderRepo := repository.NewPostgresOrderRepository(dbPool)
-	orderService := service.NewOrderService(orderRepo, rdb)
+	outboxRepo := repository.NewPostgresOutboxRepository()
+	outboxPublisher := repository.NewOutboxPublisher(outboxRepo)
+	orderService := service.NewOrderService(dbPool, orderRepo, outboxPublisher)
 	orderHandler := handler.NewOrderHandler(orderService)
 
 	mux := http.NewServeMux()

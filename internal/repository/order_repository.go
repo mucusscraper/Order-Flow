@@ -4,11 +4,13 @@ import (
 	"context"
 	"sync"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/mucusscraper/Order-Flow/internal/domain"
 )
 
 type OrderRepository interface {
 	Save(ctx context.Context, order *domain.Order) error
+	SaveWithTx(ctx context.Context, tx pgx.Tx, order *domain.Order) error
 	FindByID(ctx context.Context, id string) (*domain.Order, error)
 	UpdateStatus(ctx context.Context, id string, status domain.OrderStatus) error
 }
