@@ -1,26 +1,10 @@
 package repository
 
-import (
-	"context"
-	"database/sql"
-	"log"
-	"path/filepath"
-	"testing"
-	"time"
-
-	"github.com/jackc/pgx/v5/pgxpool"
-	_ "github.com/lib/pq"
-	"github.com/pressly/goose/v3"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/postgres"
-	"github.com/testcontainers/testcontainers-go/wait"
-)
-
+/*
 type TestDB struct {
 	Pool   *pgxpool.Pool
 	Closer func()
 }
-
 func SetupTestDB(t *testing.T) *TestDB {
 	t.Helper()
 	ctx := context.Background()
@@ -79,3 +63,4 @@ func SetupTestDB(t *testing.T) *TestDB {
 		Closer: closer,
 	}
 }
+*/
