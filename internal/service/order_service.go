@@ -2,87 +2,132 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/mucusscraper/Order-Flow/internal/domain"
+	"github.com/mucusscraper/Order-Flow/internal/events"
 	"github.com/mucusscraper/Order-Flow/internal/repository"
-	"github.com/redis/go-redis/v9"
 )
 
-type OrderService struct {
-	repo repository.OrderRepository
-	rdb  *redis.Client
-}
-
-func NewOrderService(repo repository.OrderRepository, rdb *redis.Client) *OrderService {
-	return &OrderService{repo: repo, rdb: rdb}
-}
-
+// CreateOrderDTO define os dados recebidos na requisição HTTP
 type CreateOrderDTO struct {
-	CustomerID string             `json:"customer_id"`
-	Items      []domain.OrderItem `json:"items"`
+	Items []OrderItemDTO `json:"items"`
+}
+
+type OrderItemDTO struct {
+	ProductID string  `json:"product_id"`
+	Quantity  int     `json:"quantity"`
+	Price     float64 `json:"price"`
+}
+
+type OrderService struct {
+	dbPool    *pgxpool.Pool
+	orderRepo *repository.PostgresOrderRepository
+	publisher events.Publisher
+}
+
+func NewOrderService(dbPool *pgxpool.Pool, orderRepo *repository.PostgresOrderRepository, publisher events.Publisher) *OrderService {
+	return &OrderService{
+		dbPool:    dbPool,
+		orderRepo: orderRepo,
+		publisher: publisher,
+	}
 }
 
 func (s *OrderService) CreateOrder(ctx context.Context, dto CreateOrderDTO) (*domain.Order, error) {
 	if len(dto.Items) == 0 {
 		return nil, domain.ErrInvalidOrderItems
 	}
+
+	// Calcula o total e converte o DTO para o Domain Model
 	var total float64
-	for _, item := range dto.Items {
-		if item.Quantity <= 0 || item.Price < 0 {
+	var items []domain.OrderItem
+
+	for _, itemDTO := range dto.Items {
+		if itemDTO.Quantity <= 0 || itemDTO.Price < 0 {
 			return nil, domain.ErrInvalidOrderItems
 		}
-		total += float64(item.Quantity) * item.Price
+		total += float64(itemDTO.Quantity) * itemDTO.Price
+		items = append(items, domain.OrderItem{
+			ProductID: itemDTO.ProductID,
+			Quantity:  itemDTO.Quantity,
+			Price:     itemDTO.Price,
+		})
 	}
+
+	// Extrai o customer_id do contexto (injetado pelo middleware de Auth, se houver) ou define um padrão
+	customerID := "cust-default"
+	if sub, ok := ctx.Value("sub").(string); ok && sub != "" {
+		customerID = sub
+	}
+
 	order := &domain.Order{
 		ID:         uuid.New().String(),
-		CustomerID: dto.CustomerID,
-		Items:      dto.Items,
+		CustomerID: customerID,
 		Total:      total,
-		Status:     domain.StatusCreated,
+		Status:     domain.OrderStatus("CREATED"), // Ou string dependendo do seu domain
 		CreatedAt:  time.Now(),
+		Items:      items,
 	}
-	err := s.repo.Save(ctx, order)
+
+	// 1. Abre a transação com o pgx
+	tx, err := s.dbPool.Begin(ctx)
 	if err != nil {
 		return nil, err
 	}
+	defer tx.Rollback(ctx)
+
+	// 2. Cria o pedido usando a transação externa
+	err = s.orderRepo.SaveWithTx(ctx, tx, order)
+	if err != nil {
+		return nil, err
+	}
+
+	// 3. Monta o evento para o Outbox
+	event := domain.Event{
+		EventID:     uuid.New().String(),
+		EventType:   "orders.created",
+		AggregateID: order.ID,
+		OccurredAt:  time.Now(),
+		Payload:     order,
+	}
+
+	// 4. Salva o evento na tabela outbox_events na MESMA transação
+	if err := s.publisher.Publish(ctx, tx, event); err != nil {
+		return nil, err
+	}
+
+	// 5. Efetiva a transação no banco de dados
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+
 	return order, nil
 }
 
 func (s *OrderService) GetOrder(ctx context.Context, id string) (*domain.Order, error) {
-	cacheKey := "order:" + id
-	val, err := s.rdb.Get(ctx, cacheKey).Result()
-	if err == nil {
-		var order domain.Order
-		if json.Unmarshal([]byte(val), &order) == nil {
-			return &order, nil
-		}
-	}
-	order, err := s.repo.FindByID(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	data, err := json.Marshal(order)
-	if err == nil {
-		s.rdb.Set(ctx, cacheKey, data, 5*time.Minute)
-	}
-	return order, nil
+	return s.orderRepo.FindByID(ctx, id)
 }
 
 func (s *OrderService) CancelOrder(ctx context.Context, id string) (*domain.Order, error) {
-	order, err := s.repo.FindByID(ctx, id)
+	// Busca o pedido primeiro para validar o estado se necessário
+	order, err := s.orderRepo.FindByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	if !order.CanTransitionTo(domain.StatusCancelled) {
+
+	// Exemplo de validação de estado (ajuste conforme seu domain)
+	if order.Status == "CANCELLED" || order.Status == "COMPLETED" {
 		return nil, domain.ErrInvalidOrderState
 	}
-	if err := s.repo.UpdateStatus(ctx, id, domain.StatusCancelled); err != nil {
+
+	err = s.orderRepo.UpdateStatus(ctx, id, domain.OrderStatus("CANCELLED"))
+	if err != nil {
 		return nil, err
 	}
-	s.rdb.Del(ctx, "order:"+id)
-	order.Status = domain.StatusCancelled
+
+	order.Status = "CANCELLED"
 	return order, nil
 }

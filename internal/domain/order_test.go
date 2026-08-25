@@ -1,6 +1,8 @@
 package domain
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestOrderStateTransitions(t *testing.T) {
 	order := &Order{
